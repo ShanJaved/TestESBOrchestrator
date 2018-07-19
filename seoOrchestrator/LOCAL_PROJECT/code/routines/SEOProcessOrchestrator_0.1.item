@@ -30,12 +30,12 @@ public class SEOProcessOrchestrator {
   SimpleDateFormat      jsonFormatter     = new SimpleDateFormat("yyyy-MMM-dd");
 
   private final String  SQL_SERVER_DRIVER = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
-  /* LOCAL */
+  /* LOCAL Setting*/
 //  private final String  URL	= "jdbc:sqlserver://DESKTOP-0ROISII:1433;databaseName=SEO";
 //  private final String  DB_USERNAME       = "sa";
 //  private final String  DB_PASSWORD       = "lrl4337";
 
-  /* SERVER */
+  /* SERVER Setting*/
   private final String  URL	= "jdbc:sqlserver://172.31.19.187:1433;databaseName=SEO_Master_Schema";
   private final String  DB_USERNAME       = "engro";
   private final String  DB_PASSWORD       = "Engr0$30";
