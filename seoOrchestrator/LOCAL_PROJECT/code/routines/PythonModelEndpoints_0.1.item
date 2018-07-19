@@ -1,0 +1,375 @@
+package routines;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.commons.dbcp2.BasicDataSource;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+
+public class PythonModelEndpoints {
+
+  private JdbcTemplate  jdbcTemplate      = null;
+  private static String response          = "";
+
+  SimpleDateFormat      dbFormat          = new SimpleDateFormat("yyyy-MM-dd");
+  SimpleDateFormat      outputFormat      = new SimpleDateFormat("dd-MMM-YYYY");
+
+  private final String  SQL_SERVER_DRIVER = "com.microsoft.sqlserver.jdbc.SQLServerDriver";
+  /* LOCAL */
+//  private final String  URL	= "jdbc:sqlserver://DESKTOP-0ROISII:1433;databaseName=SEO";
+//  private final String  DB_USERNAME       = "sa";
+//  private final String  DB_PASSWORD       = "lrl4337";
+
+  /* SERVER */
+  private final String  URL	= "jdbc:sqlserver://172.31.19.187:1433;databaseName=SEO_Master_Schema";
+  private final String  DB_USERNAME       = "engro";
+  private final String  DB_PASSWORD       = "Engr0$30";
+
+  public PythonModelEndpoints() {
+    super();
+    jdbcTemplate = new JdbcTemplate(getDataSource());
+  }
+
+  private BasicDataSource getDataSource() {
+
+    BasicDataSource dataSource = new BasicDataSource();
+    dataSource.setDriverClassName(SQL_SERVER_DRIVER);
+    dataSource.setUrl(URL);
+    dataSource.setUsername(DB_USERNAME);
+    dataSource.setPassword(DB_PASSWORD);
+
+    return dataSource;
+  }
+
+  private boolean compareDates(Date date1, Date date2) {
+
+    if (date1.after(date2)) {
+      response = "Start date cannot be greater than End date";
+      return false;
+    }
+
+    return true;
+  }
+
+  public static String executeGetData(String input) {
+
+    // Call constructor to initialize jdbcTemplate
+    PythonModelEndpoints pythonModelEndpoints = new PythonModelEndpoints();
+
+    JSONObject jsonInput = null;
+    try {
+      jsonInput = new JSONObject(input);
+
+      String customer = (String) jsonInput.get("customername");
+      String potline = (String) jsonInput.get("potline");
+      String startDate = (String) jsonInput.get("startdate");
+      String endDate = (String) jsonInput.get("enddate");
+      JSONArray colList = (JSONArray) jsonInput.get("columns_list");
+
+      Set<String> tags = new LinkedHashSet<String>();
+      for (int i = 0; i < colList.length(); i++) {
+        tags.add(colList.getString(i).toLowerCase());
+      }
+
+      if (customer.isEmpty() || potline.isEmpty() || startDate.isEmpty() || endDate.isEmpty() || tags.isEmpty())
+        return "Mandatory fields are missing";
+
+      SimpleDateFormat dbFormat = new SimpleDateFormat("yyyy-MM-dd");
+      Date start_Date = dbFormat.parse(startDate);
+      Date end_Date = dbFormat.parse(endDate);
+
+      boolean isDateValid = pythonModelEndpoints.compareDates(start_Date, end_Date);
+
+      if (isDateValid)
+        return pythonModelEndpoints.getDataForPythonModel(customer, potline, dbFormat.format(start_Date),
+            dbFormat.format(end_Date), tags);
+      else
+        return response;
+
+    } catch (Exception e) {
+      // TODO Auto-generated catch block
+      return e.getMessage();
+    }
+  }
+
+  private String getDataForPythonModel(String customer, String Potline, String startDate, String endDate,
+      Set<String> tags) {
+    JSONObject potLeakageInput = new JSONObject();
+    try {
+      LinkedHashMap<String, String> tagType = getSEODataInputMap();
+      Set<String> availbleTags = tagType.keySet();
+
+      for (String tag : tags) {
+        if (!availbleTags.contains(tag)) {
+          return "Invalid Column: " + tag + " not exists in SEO_Data";
+        }
+      }
+
+      JSONArray dataValues = new JSONArray();
+      JSONArray tagNames = new JSONArray();
+      for (String tag : tags) {
+        tagNames.put(tag);
+      }
+
+      String sqlQuery = "";
+      sqlQuery = " select * from SEO_Data where date_of_record >= '" + startDate + "' and date_of_record <= '"
+          + endDate + "' and Potline_ID='" + Potline + "' and Customer_Alias='" + customer + "'";
+
+      List<JSONArray> dataList = this.jdbcTemplate.query(sqlQuery, new Object[] {}, new RowMapper<JSONArray>() {
+        @Override
+        public JSONArray mapRow(ResultSet rs, int rowNum) throws SQLException {
+
+          JSONArray eachEntity = new JSONArray();
+          for (String tag : tags) {
+            String tagDataType = tagType.get(tag);
+            switch (tagDataType) {
+
+            case "String":
+              String valueString = rs.getString(tag);
+              if (rs.wasNull()) {
+	 valueString = null;
+              }
+              eachEntity.put(valueString);
+              break;
+
+            case "Date":
+              Date valueDate = rs.getDate(tag);
+              if (rs.wasNull()) {
+	 valueDate = null;
+              }
+              eachEntity.put(valueDate);
+              break;
+
+            case "Double":
+              Double valueDouble = rs.getDouble(tag);
+              if (rs.wasNull()) {
+	 valueDouble = null;
+              }
+              eachEntity.put(valueDouble);
+              break;
+
+            case "Float":
+              Float valueFloat = rs.getFloat(tag);
+              if (rs.wasNull()) {
+	 valueFloat = null;
+              }
+              eachEntity.put(valueFloat);
+              break;
+
+            case "Integer":
+              Integer valueInteger = rs.getInt(tag);
+              if (rs.wasNull()) {
+	 valueInteger = null;
+              }
+              eachEntity.put(valueInteger);
+              break;
+
+            default:
+              String valuedefault = rs.getString(tag);
+              if (rs.wasNull()) {
+	 valuedefault = null;
+              }
+              eachEntity.put(valuedefault);
+            }
+          }
+          return eachEntity;
+        }
+      });
+      for (JSONArray entity : dataList) {
+        dataValues.put(entity);
+      }
+
+      if (dataList.isEmpty()) {
+        return "No record availble for this input";
+      }
+
+      potLeakageInput.put("tags", tagNames);
+      potLeakageInput.put("data", dataValues);
+    } catch (JSONException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    } catch (Exception e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    }
+
+    return potLeakageInput.toString();
+  }
+
+  public static String executeGetDefinition(String input) {
+
+    // Call constructor to initialize jdbcTemplate
+    PythonModelEndpoints pythonModelEndpoints = new PythonModelEndpoints();
+
+    JSONObject jsonInput = null;
+    try {
+      jsonInput = new JSONObject(input);
+
+      String customer = (String) jsonInput.get("customername");
+      String potline = (String) jsonInput.get("potline");
+
+      if (customer.isEmpty() || potline.isEmpty())
+        return "Mandatory fields are missing";
+
+      return pythonModelEndpoints.getDefinitionForPythonModel(customer, potline).toString();
+
+    } catch (JSONException e) {
+      // TODO Auto-generated catch block
+      return e.getMessage();
+    }
+
+  }
+
+  private Object getDefinitionForPythonModel(String customer, String potline) {
+    String sql = "select * from SEO_Config where Potline_ID='" + potline + "' and Customer_Alias='" + customer + "'";
+    Map<String, Object> dbResult = null;
+    try {
+      dbResult = jdbcTemplate.queryForMap(sql);
+    } catch (EmptyResultDataAccessException ex) {
+      return "No record availble for this input";
+    }
+
+    JSONObject jsonResultForModel = new JSONObject();
+
+    try {
+
+      jsonResultForModel.put("response", "is_pot_leaked");
+      jsonResultForModel.put(
+          "score_cutoff",
+          dbResult.get("Score_CutOff") == null ? JSONObject.NULL : Double.parseDouble(dbResult.get("Score_CutOff")
+              .toString()));
+      jsonResultForModel.put(
+          "mass_of_metal",
+          dbResult.get("Mass_Of_Metal") == null ? JSONObject.NULL : Double.parseDouble(dbResult.get("Mass_Of_Metal")
+              .toString()));
+      jsonResultForModel.put("file_prefix", dbResult.get("Training_PKL_File_Name") == null ? JSONObject.NULL
+          : getFilePrefix(dbResult.get("Training_PKL_File_Name").toString()));
+      jsonResultForModel.put("potline_name",
+          dbResult.get("Potline_ID") == null ? JSONObject.NULL : dbResult.get("Potline_ID"));
+      jsonResultForModel.put(
+          "exclude_leakday",
+          dbResult.get("Exclude_LeakDay") == null ? JSONObject.NULL : Double.parseDouble(dbResult
+              .get("Exclude_LeakDay").toString()));
+      jsonResultForModel.put("numdays_marked_leaks", dbResult.get("NumDays_Marked_Leaks") == null ? JSONObject.NULL
+          : Double.parseDouble(dbResult.get("NumDays_Marked_Leaks").toString()));
+      jsonResultForModel.put("training_startdate", dbResult.get("Training_Start_Date") == null ? JSONObject.NULL
+          : getOutputFormatDate(dbResult.get("Training_Start_Date").toString()));
+      jsonResultForModel.put("training_enddate", dbResult.get("Training_End_Date") == null ? JSONObject.NULL
+          : getOutputFormatDate(dbResult.get("Training_End_Date").toString()));
+      jsonResultForModel.put("interpolation_method", dbResult.get("Interpolation_Method") == null ? JSONObject.NULL
+          : dbResult.get("Interpolation_Method"));
+      jsonResultForModel
+          .put(
+              "training_PKL_filepath",
+              dbResult.get("Training_PKL_Folder_Path") == null ? JSONObject.NULL : dbResult
+	   .get("Training_PKL_Folder_Path"));
+      jsonResultForModel.put("def_endpoint", JSONObject.NULL);
+      jsonResultForModel.put("get_data_endpoint", JSONObject.NULL);
+      jsonResultForModel.put("store_data_endpoint", JSONObject.NULL);
+
+      // Set predictors list
+      if (dbResult.get("Predictor_CSV_List") == null)
+        jsonResultForModel.put("predictors", JSONObject.NULL);
+      else {
+        ArrayList<Object> predictors = new ArrayList<Object>();
+        String[] predictorsValuesFromDB = dbResult.get("Predictor_CSV_List").toString().split(",");
+        for (String val : predictorsValuesFromDB)
+          predictors.add(val);
+
+        jsonResultForModel.put("predictors", predictors);
+      }
+      // // Set color list
+      if (dbResult.get("Color_CSV_Range") == null)
+        jsonResultForModel.put("color_ranges", JSONObject.NULL);
+      else {
+        ArrayList<Object> colors = new ArrayList<Object>();
+        String[] colorValuesFromDB = dbResult.get("Color_CSV_Range").toString().split(",");
+        for (String val : colorValuesFromDB)
+          colors.add(Double.parseDouble(val.trim()));
+
+        jsonResultForModel.put("color_ranges", colors);
+      }
+
+    } catch (JSONException e) {
+      // TODO Auto-generated catch block
+      return e.getMessage();
+    }
+
+    return jsonResultForModel.toString();
+  }
+
+  public LinkedHashMap<String, String> getSEODataInputMap() {
+    LinkedHashMap<String, String> tagType = new LinkedHashMap<String, String>();
+    tagType.put("customer_alias", "String");
+    tagType.put("potline_id", "String");
+    tagType.put("pot_no", "String");
+    tagType.put("date_of_record", "String");
+    tagType.put("pot_voltage_noloss", "Float");
+    tagType.put("alf3_excess_kg", "Float");
+    tagType.put("bath_temp", "Integer");
+    tagType.put("metal_tapping_kg", "Integer");
+    tagType.put("instability_noise", "Double");
+    tagType.put("tpan_balanced_score", "Integer");
+    tagType.put("tpan_unbalanced_score", "Integer");
+    tagType.put("tpan_unbalanced_rank", "Integer");
+    tagType.put("mp_most_efficienct_score", "Integer");
+    tagType.put("mp_least_efficient_score", "Integer");
+    tagType.put("mp_least_efficient_rank", "Integer");
+    tagType.put("pot_age", "Float");
+    tagType.put("pot_current", "Double");
+    tagType.put("current_efficiency", "Float");
+    tagType.put("energy_consumption", "Float");
+    tagType.put("number_of_idle_days", "Integer");
+    tagType.put("cathode_voltage_drop", "Float");
+    tagType.put("alumina_doses", "Integer");
+    tagType.put("alumina_kg", "Float");
+    tagType.put("alf3_doses_auto", "Integer");
+    tagType.put("alf3_doses_manual", "Integer");
+    tagType.put("alf3_excess_perc", "Float");
+    tagType.put("metal_height_cm", "Float");
+    tagType.put("bath_height_cm", "Float");
+    tagType.put("fe_perc", "Float");
+    tagType.put("si_perc", "Float");
+    tagType.put("caf2_perc", "Float");
+    tagType.put("li_perc", "Float");
+    tagType.put("anode_effect_average", "Float");
+    tagType.put("anode_effect_time", "Float");
+    tagType.put("anode_voltage_drop", "Float");
+    tagType.put("anode_current_distribution", "Float");
+    tagType.put("cathode_current_distribution", "Float");
+
+    return tagType;
+  }
+
+  private String getFilePrefix(String string) {
+
+    return string.split("\\.")[0];
+  }
+
+  private String getOutputFormatDate(String string) {
+
+    Date date = null;
+    try {
+      date = dbFormat.parse(string);
+      return outputFormat.format(date);
+    } catch (ParseException e) {
+      // TODO Auto-generated catch block
+      return e.getMessage();
+    }
+  }
+
+}
